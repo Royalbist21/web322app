@@ -5,7 +5,7 @@
 * 
 *  Name: ____Royal Singh Bist__________________ Student ID: _____156833212_________ Date: __03/22/2023______________
 *
-*  Cyclic Web App URL: https://zealous-visor-foal.cyclic.app/____________________________________________
+*  Cyclic Web App URL: https://zealous-visor-foal.cyclic.app/blog____________________________________________
 *
 *  GitHub Repository URl: https://github.com/Royalbist21/web322app.git_____________________________________________________
 *
