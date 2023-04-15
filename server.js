@@ -18,6 +18,8 @@ const exphbs = require("express-handlebars");
 const path = require("path");
 const stripJs = require("strip-js");
 const blogData = require("./blog-service.js");
+const authData = require("./auth-service.js");
+const clientSessions = require("client-sessions");
 const {
   initialize,
   getAllPosts,
@@ -31,11 +33,38 @@ const {
   deletePostById,
 } = require("./blog-service.js");
 const { resolve } = require("path");
+const { redirect } = require("express/lib/response.js");
 
 const app = express();
 
 // Using the 'public' folder as our static folder
 app.use(express.static("public"));
+
+// Setup client-sessions
+app.use(clientSessions({
+  cookieName: "session", // this is the object name that will be added to 'req'
+  secret: "web322blogapplication", // this should be a long un-guessable string.
+  duration: 2 * 60 * 1000, // duration of the session in milliseconds (2 minutes)
+  activeDuration: 1000 * 60 // the session will be extended by this many ms each request (1 minute)
+}));
+
+// Middleware to ensure that all of our templates have access to a "session" object
+app.use(function(req, res, next) {
+  res.locals.session = req.session;
+  next();
+});
+
+// This is a helper middleware function that checks if a user is logged in
+// we can use it in any route that we want to protect against unauthenticated access.
+// A more advanced version of this would include checks for authorization as well after
+// checking if the user is authenticated
+function ensureLogin(req, res, next) {
+  if (!req.session.user) {
+    res.redirect("/login");
+  } else {
+    next();
+  }
+}
 
 // This will add the property "activeRoute" to "app.locals" whenever the route changes
 app.use(function (req, res, next) {
@@ -98,10 +127,9 @@ app.set("view engine", ".hbs");
 
 // Configuring Cloudinary
 cloudinary.config({
-  cloud_name: "dtjzbh27c",
-  api_key: "352185835558593",
-  api_secret: "XWtpK6nUkH_eDPJIwyaGDNvo1F0",
-  secure: true,
+  cloud_name: "dgbx48szr",
+  api_key: "991392626841556",
+  api_secret: "tQ81aBObL9EPnvYdcHFCQeck9Z4"
 });
 
 // Variable without any disk storage
@@ -166,9 +194,8 @@ app.get("/blog", async (req, res) => {
 });
 
 // ========== Posts Page Route ==========
-app.get("/posts", (req, res) => {
+app.get("/posts", ensureLogin, (req, res) => {
   // Checking if a category was provided
-  console.log(req.query.category);
   if (req.query.category) {
     getPublishedPostsByCategory(req.query.category)
       .then((data) => {
@@ -212,7 +239,7 @@ app.get("/posts", (req, res) => {
 });
 
 // ========== Add Post Page Route (GET) ==========
-app.get("/posts/add", (req, res) => {
+app.get("/posts/add", ensureLogin, (req, res) => {
   getCategories()
     .then((categories) => {
       res.render("addPost", { categories: categories });
@@ -223,7 +250,7 @@ app.get("/posts/add", (req, res) => {
 });
 
 // ========== Add Post Page Route (POST) ==========
-app.post("/posts/add", upload.single("featureImage"), (req, res) => {
+app.post("/posts/add", ensureLogin, upload.single("featureImage"), (req, res) => {
   // Configuring cloudinary image uploading
   let streamUpload = (req) => {
     return new Promise((resolve, reject) => {
@@ -285,7 +312,7 @@ app.get("/post/:value", (req, res) => {
 });
 
 // ========== Categories Page Route ==========
-app.get("/categories", (req, res) => {
+app.get("/categories", ensureLogin, (req, res) => {
   getCategories()
     .then((data) => {
       data.length > 0
@@ -299,16 +326,15 @@ app.get("/categories", (req, res) => {
 });
 
 // ========== Add Categories Route ==========
-app.get("/categories/add", (req, res) => {
+app.get("/categories/add", ensureLogin, (req, res) => {
   res.render("addCategory");
 });
 
 // ========== Add Categories Post Route ==========
-app.post("/categories/add", (req, res) => {
+app.post("/categories/add", ensureLogin, (req, res) => {
   let catObject = {};
   // Add it Category before redirecting to /categories
   catObject.category = req.body.category;
-  console.log(req.body.category);
   if (req.body.category != "") {
     addCategory(catObject)
       .then(() => {
@@ -321,7 +347,7 @@ app.post("/categories/add", (req, res) => {
 });
 
 // ========== Delete Categories Route ==========
-app.get("/categories/delete/:id", (req, res) => {
+app.get("/categories/delete/:id", ensureLogin, (req, res) => {
   deleteCategoryById(req.params.id)
     .then(() => {
       res.redirect("/categories");
@@ -332,7 +358,7 @@ app.get("/categories/delete/:id", (req, res) => {
 });
 
 // ========== Delete Posts Route ==========
-app.get("/posts/delete/:id", (req, res) => {
+app.get("/posts/delete/:id", ensureLogin, (req, res) => {
   deletePostById(req.params.id)
     .then(() => {
       res.redirect("/posts");
@@ -343,7 +369,7 @@ app.get("/posts/delete/:id", (req, res) => {
 });
 
 // ========== Blog By ID Page Route ==========
-app.get("/blog/:id", async (req, res) => {
+app.get("/blog/:id", ensureLogin, async (req, res) => {
   // Declare an object to store properties for the view
   let viewData = {};
   try {
@@ -382,15 +408,67 @@ app.get("/blog/:id", async (req, res) => {
   res.render("blog", { data: viewData });
 });
 
+// ========== Get Login Page Route ==========
+app.get("/login", (req, res) => {
+  res.render("login");
+})
+
+// ========== Get Register Page Route ==========
+app.get("/register", (req, res) => {
+  res.render("register");
+})
+
+// ========== Post Login Page Route ==========
+app.post("/login", (req, res) => {
+  req.body.userAgent = req.get('User-Agent');
+  authData.checkUser(req.body)
+    .then((user) => {
+      req.session.user = {
+        userName: user.userName,
+        email: user.email,
+        loginHistory: user.loginHistory
+      };
+      res.redirect('/posts');
+    })
+    .catch((err) => {
+      res.render('login', {errorMessage: err, userName: req.body.userName});
+    });
+})
+
+// ========== Post Register Page Route ==========
+app.post("/register", (req, res) => {
+   authData.registerUser(req.body)
+   .then(() => {
+     res.render('register', { successMessage: 'User created' });
+   })
+   .catch((err) => {
+     res.render('register', { errorMessage: err, userName: req.body.userName });
+   });
+})
+
+// ========== Logout Route ==========
+app.get("/logout", (req, res) => {
+  req.session.reset();
+  res.redirect("/");
+})
+
+// ========== User History Route ==========
+app.get("/userHistory", ensureLogin, (req, res) => {
+  res.render("userHistory");
+})
+
 // ========== HANDLE 404 REQUESTS ==========
 app.use((req, res) => {
   res.status(404).render("404");
 });
 
 // ========== Setup http server to listen on HTTP_PORT ==========
-initialize().then(() => {
-  // Start the server after the files are read and the initialization is done
-  app.listen(HTTP_PORT, () => {
-    console.log("Express http server listening on: " + HTTP_PORT);
-  });
+blogData.initialize()
+.then(authData.initialize)
+.then(() => {
+    app.listen(HTTP_PORT, function(){
+        console.log("app listening on: " + HTTP_PORT)
+    });
+}).catch((err) => {
+    console.log("unable to start server: " + err);
 });
